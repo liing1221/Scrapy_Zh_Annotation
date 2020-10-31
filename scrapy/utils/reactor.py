@@ -21,6 +21,7 @@ class CallLaterOnce(object):
     """Schedule a function to be called in the next reactor loop, but only if
     it hasn't been already scheduled since the last time it ran.
     """
+    # 在twisted的reactor中循环调度一个方法
 
     def __init__(self, func, *a, **kw):
         self._func = func
@@ -29,6 +30,7 @@ class CallLaterOnce(object):
         self._call = None
 
     def schedule(self, delay=0):
+        # 上次发起调度，才可再次继续调度
         if self._call is None:
             self._call = reactor.callLater(delay, self)
 
@@ -37,5 +39,6 @@ class CallLaterOnce(object):
             self._call.cancel()
 
     def __call__(self):
+        # 上面注册的是self,所以会执行__call__
         self._call = None
         return self._func(*self._a, **self._kw)

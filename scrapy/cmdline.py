@@ -19,6 +19,7 @@ from scrapy.settings.deprecated import check_deprecated_settings
 def _iter_command_classes(module_name):
     # TODO: add `name` attribute to commands and and merge this function with
     # scrapy.utils.spider.iter_spider_classes
+    # 迭代这个包下的所有模块，找到ScrapyCommand的子类
     for module in walk_modules(module_name):
         for obj in vars(module).values():
             if inspect.isclass(obj) and \
@@ -30,8 +31,10 @@ def _iter_command_classes(module_name):
 
 def _get_commands_from_module(module, inproject):
     d = {}
+    # 找到这个模块下所有的命令类(ScrapyCommand子类)
     for cmd in _iter_command_classes(module):
         if inproject or not cmd.requires_project:
+            # 生成{cmd_name: cmd}字典
             cmdname = cmd.__module__.split('.')[-1]
             d[cmdname] = cmd()
     return d
@@ -58,6 +61,7 @@ def _get_commands_dict(settings, inproject):
 
 
 def _pop_command_name(argv):
+    # 解析执行的命令并找到对应的命令实例
     i = 0
     for arg in argv[1:]:
         if not arg.startswith('-'):

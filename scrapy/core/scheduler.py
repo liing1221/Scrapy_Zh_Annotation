@@ -77,8 +77,11 @@ class Scheduler(object):
 
     def open(self, spider):
         self.spider = spider
+        # 实例化化优先级队列
         self.mqs = self._mq()
+        # 如果定义了dqdir,则实例化基于磁盘的队列
         self.dqs = self._dq() if self.dqdir else None
+        # 调用请求指纹过滤器的open方法
         return self.df.open()
 
     def close(self, reason):
@@ -88,13 +91,16 @@ class Scheduler(object):
         return self.df.close(reason)
 
     def enqueue_request(self, request):
+        # 请求入队，若请求过滤器验证重复，返回False
         if not request.dont_filter and self.df.request_seen(request):
             self.df.log(request, self.spider)
             return False
+        # 磁盘队列是否入队成功
         dqok = self._dqpush(request)
         if dqok:
             self.stats.inc_value('scheduler/enqueued/disk', spider=self.spider)
         else:
+            # 没有定义磁盘队列，则使用内存队列
             self._mqpush(request)
             self.stats.inc_value('scheduler/enqueued/memory', spider=self.spider)
         self.stats.inc_value('scheduler/enqueued', spider=self.spider)
@@ -116,9 +122,11 @@ class Scheduler(object):
         return len(self.dqs) + len(self.mqs) if self.dqs else len(self.mqs)
 
     def _dqpush(self, request):
+        # 是否定义磁盘队列
         if self.dqs is None:
             return
         try:
+            # Request对象放入磁盘队列
             self.dqs.push(request, -request.priority)
         except ValueError as e:  # non serializable request
             if self.logunser:
@@ -135,6 +143,7 @@ class Scheduler(object):
             return True
 
     def _mqpush(self, request):
+        # 入内存队列
         self.mqs.push(request, -request.priority)
 
     def _dqpop(self):
@@ -157,6 +166,7 @@ class Scheduler(object):
 
     def _dq(self):
         """ Create a new priority queue instance, with disk storage """
+        # 实例化磁盘队列
         state = self._read_dqs_state(self.dqdir)
         q = create_instance(self.pqclass,
                             None,

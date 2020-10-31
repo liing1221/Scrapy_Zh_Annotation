@@ -15,6 +15,7 @@ DATADIR_CFG_SECTION = 'datadir'
 
 
 def inside_project():
+    # 检查此环境变量是否存在(上面已设置)
     scrapy_module = os.environ.get('SCRAPY_SETTINGS_MODULE')
     if scrapy_module is not None:
         try:
@@ -23,6 +24,7 @@ def inside_project():
             warnings.warn("Cannot import scrapy settings module %s: %s" % (scrapy_module, exc))
         else:
             return True
+    # 如果环境变量没有，就近查找scrapy.cfg，找得到就认为是在项目环境中
     return bool(closest_scrapy_cfg())
 
 
@@ -59,16 +61,21 @@ def data_path(path, createdir=False):
 
 
 def get_project_settings():
+    # 环境变量中是否有SCRAPY_SETTINGS_MODULE配置
     if ENVVAR not in os.environ:
         project = os.environ.get('SCRAPY_PROJECT', 'default')
+        # 初始化环境,找到用户配置文件settings.py,设置到环境变量SCRAPY_SETTINGS_MODULE中
         init_env(project)
-
+    # 加载默认配置文件default_settings.py，生成settings实例
     settings = Settings()
+    # 取得用户配置文件
     settings_module_path = os.environ.get(ENVVAR)
+    # 更新配置，用户配置覆盖默认配置
     if settings_module_path:
         settings.setmodule(settings_module_path, priority='project')
 
     # XXX: remove this hack
+    # 如果环境变量中有其他scrapy相关配置则覆盖
     pickled_settings = os.environ.get("SCRAPY_PICKLED_SETTINGS_TO_OVERRIDE")
     if pickled_settings:
         warnings.warn("Use of environment variable "

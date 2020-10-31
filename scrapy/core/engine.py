@@ -111,19 +111,24 @@ class ExecutionEngine(object):
         self.paused = False
 
     def _next_request(self, spider):
+        # 此方法会循环调度
         slot = self.slot
         if not slot:
             return
-
+        # 暂停
         if self.paused:
             return
-
+        # 是否等待
         while not self._needs_backout(spider):
+            # 从scheduler中获取request
+            # 注意：第一次获取时，是没有的，会break出来
+            # 进而 执行下面的逻辑
             if not self._next_request_from_scheduler(spider):
                 break
-
+        # 如果start_requests 有数目且不需要等待
         if slot.start_requests and not self._needs_backout(spider):
             try:
+                # 获取下一个种子请求
                 request = next(slot.start_requests)
             except StopIteration:
                 slot.start_requests = None
@@ -132,12 +137,18 @@ class ExecutionEngine(object):
                 logger.error('Error while obtaining start requests',
                              exc_info=True, extra={'spider': spider})
             else:
+                # 调用crawl,实际是把request放入scheduler的队列中
                 self.crawl(request, spider)
-
+        # 空闲 则关闭spider
         if self.spider_is_idle(spider) and slot.close_if_idle:
             self._spider_idle(spider)
 
     def _needs_backout(self, spider):
+        # 是否需要等待，取决于4个条件
+        # 1、Engine是否stop
+        # 2、slot是否close
+        # 3、downloader下载超过预设
+        # 4、scraper处理response超过预设
         slot = self.slot
         return not self.running \
             or slot.closing \
@@ -146,10 +157,13 @@ class ExecutionEngine(object):
 
     def _next_request_from_scheduler(self, spider):
         slot = self.slot
+        # 从scheduler拿出下个request
         request = slot.scheduler.next_request()
         if not request:
             return
+        # 下载
         d = self._download(request, spider)
+        # 注册成功、失败、出口回调方法
         d.addBoth(self._handle_downloader_output, request, spider)
         d.addErrback(lambda f: logger.info('Error while handling downloader output',
                                            exc_info=failure_to_exc_info(f),
@@ -165,12 +179,16 @@ class ExecutionEngine(object):
         return d
 
     def _handle_downloader_output(self, response, request, spider):
+        # 下载结果必须是request、Response、Failure其一
         assert isinstance(response, (Request, Response, Failure)), response
         # downloader middleware can return requests (for example, redirects)
+        # 如果是Request，则再次调用crawl，执行Scheduler的入队逻辑
         if isinstance(response, Request):
             self.crawl(response, spider)
             return
         # response is a Response or Failure
+        # 如果是Response或Failure，则调用scrape的enpueue_scrape进一步处理
+        # 主要是和Spider和pipeline交互
         d = self.scraper.enqueue_scrape(response, request, spider)
         d.addErrback(lambda f: logger.error('Error while enqueuing downloader output',
                                             exc_info=failure_to_exc_info(f),
@@ -207,12 +225,15 @@ class ExecutionEngine(object):
     def crawl(self, request, spider):
         assert spider in self.open_spiders, \
             "Spider %r not opened when crawling: %s" % (spider.name, request)
+        # request放入scheduler队列，调用nextcall的schedule
         self.schedule(request, spider)
+        # 进行下一次调度
         self.slot.nextcall.schedule()
 
     def schedule(self, request, spider):
         self.signals.send_catch_log(signal=signals.request_scheduled,
                 request=request, spider=spider)
+        # 调用scheduler的enqueue_request,把request放入scheduler队列
         if not self.slot.scheduler.enqueue_request(request):
             self.signals.send_catch_log(signal=signals.request_dropped,
                                         request=request, spider=spider)
@@ -228,11 +249,14 @@ class ExecutionEngine(object):
                 if isinstance(response, Request) else response
 
     def _download(self, request, spider):
+        # 下载请求
         slot = self.slot
         slot.add_request(request)
         def _on_success(response):
+            # 成功回调，结果必须是Request或Response
             assert isinstance(response, (Response, Request))
             if isinstance(response, Response):
+                # 如果下载后结果为Response，则返回Response
                 response.request = request  # tie request to response received
                 logkws = self.logformatter.crawled(request, response, spider)
                 if logkws is not None:
@@ -242,11 +266,14 @@ class ExecutionEngine(object):
             return response
 
         def _on_complete(_):
+            # 此次下载完成后，继续进行下一次调度
             slot.nextcall.schedule()
             return _
-
+        # 调用Downloader进行下载
         dwld = self.downloader.fetch(request, spider)
+        # 主次成功回调
         dwld.addCallbacks(_on_success)
+        # 结束回调
         dwld.addBoth(_on_complete)
         return dwld
 
@@ -255,16 +282,24 @@ class ExecutionEngine(object):
         assert self.has_capacity(), "No free spider slot when opening %r" % \
             spider.name
         logger.info("Spider opened", extra={'spider': spider})
+        # 注册_next_request调度方法，循环调度
         nextcall = CallLaterOnce(self._next_request, spider)
+        # 初始化scheduler
         scheduler = self.scheduler_cls.from_crawler(self.crawler)
+        # 调用爬虫中间件，处理种子请求
         start_requests = yield self.scraper.spidermw.process_start_requests(start_requests, spider)
+        # 封装Slot对象
         slot = Slot(start_requests, close_if_idle, nextcall, scheduler)
         self.slot = slot
         self.spider = spider
+        # 调用scheduler的open方法
         yield scheduler.open(spider)
+        # 调用scraper的open_spider
         yield self.scraper.open_spider(spider)
+        # 调用stats的open_spider
         self.crawler.stats.open_spider(spider)
         yield self.signals.send_catch_log_deferred(signals.spider_opened, spider=spider)
+        # 发起调度
         slot.nextcall.schedule()
         slot.heartbeat.start(5)
 

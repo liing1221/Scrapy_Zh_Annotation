@@ -43,11 +43,15 @@ def request_fingerprint(request, include_headers=None):
     include_headers argument, which is a list of Request headers to include.
 
     """
+    '''生成请求指纹'''
+
+    # 指纹生成是否包含headers
     if include_headers:
         include_headers = tuple(to_bytes(h.lower())
                                  for h in sorted(include_headers))
     cache = _fingerprint_cache.setdefault(request, {})
     if include_headers not in cache:
+        # 使用sha1算法生成指纹
         fp = hashlib.sha1()
         fp.update(to_bytes(request.method))
         fp.update(to_bytes(canonicalize_url(request.url)))

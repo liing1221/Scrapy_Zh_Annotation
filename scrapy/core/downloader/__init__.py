@@ -89,11 +89,14 @@ class Downloader(object):
 
     def fetch(self, request, spider):
         def _deactivate(response):
+            # 下载结束后删除此记录
             self.active.remove(request)
             return response
-
+        # 下载前记录处理中的请求
         self.active.add(request)
+        # 调用下载器中间件download,并注册下载成功的回调方法是self._enqueue_request
         dfd = self.middleware.download(self._enqueue_request, request, spider)
+        # 注册结束回调
         return dfd.addBoth(_deactivate)
 
     def needs_backout(self):
@@ -119,6 +122,7 @@ class Downloader(object):
         return key
 
     def _enqueue_request(self, request, spider):
+        # 加入下载请求队列
         key, slot = self._get_slot(request, spider)
         request.meta[self.DOWNLOAD_SLOT] = key
 
@@ -131,7 +135,9 @@ class Downloader(object):
                                     request=request,
                                     spider=spider)
         deferred = defer.Deferred().addBoth(_deactivate)
+        # 下载队列
         slot.queue.append((request, deferred))
+        # 处理下载队列
         self._process_queue(spider, slot)
         return deferred
 
@@ -140,6 +146,7 @@ class Downloader(object):
             return
 
         # Delay queue processing if a download_delay is configured
+        # 如果延迟下载参数有配置，则延迟处理队列
         now = time()
         delay = slot.download_delay()
         if delay:
@@ -149,12 +156,16 @@ class Downloader(object):
                 return
 
         # Process enqueued requests if there are free slots to transfer for this slot
+        # 处理下载队列
         while slot.queue and slot.free_transfer_slots() > 0:
             slot.lastseen = now
+            # 从下载队列中取出下载请求
             request, deferred = slot.queue.popleft()
+            # 开始下载
             dfd = self._download(slot, request, spider)
             dfd.chainDeferred(deferred)
             # prevent burst if inter-request delays were configured
+            # 延迟
             if delay:
                 self._process_queue(spider, slot)
                 break
@@ -163,10 +174,12 @@ class Downloader(object):
         # The order is very important for the following deferreds. Do not change!
 
         # 1. Create the download deferred
+        # 注册方法，调用handlers的download_request
         dfd = mustbe_deferred(self.handlers.download_request, request, spider)
 
         # 2. Notify response_downloaded listeners about the recent download
         # before querying queue for next request
+        # 注册下载完成的回调方法
         def _downloaded(response):
             self.signals.send_catch_log(signal=signals.response_downloaded,
                                         response=response,
@@ -183,6 +196,7 @@ class Downloader(object):
 
         def finish_transferring(_):
             slot.transferring.remove(request)
+            # 下载完成后调用_process_queue
             self._process_queue(spider, slot)
             return _
 

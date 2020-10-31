@@ -66,9 +66,13 @@ class Scraper(object):
 
     def __init__(self, crawler):
         self.slot = None
+        # 实例化爬虫中间件管理器
         self.spidermw = SpiderMiddlewareManager.from_crawler(crawler)
+        # 从配置文件中加载Pipeline处理器类
         itemproc_cls = load_object(crawler.settings['ITEM_PROCESSOR'])
+        # 实例化Pipeline处理器
         self.itemproc = itemproc_cls.from_crawler(crawler)
+        # 从配置文件中获取同事处理输出的任务个数
         self.concurrent_items = crawler.settings.getint('CONCURRENT_ITEMS')
         self.crawler = crawler
         self.signals = crawler.signals
@@ -78,6 +82,7 @@ class Scraper(object):
     def open_spider(self, spider):
         """Open the given spider for scraping and allocate resources for it"""
         self.slot = Slot()
+        # 调用所有Pipeline的open_spider
         yield self.itemproc.open_spider(spider)
 
     def close_spider(self, spider):
@@ -97,6 +102,7 @@ class Scraper(object):
             slot.closing.callback(spider)
 
     def enqueue_scrape(self, response, request, spider):
+        # 加入Scrape处理队列
         slot = self.slot
         dfd = slot.add_response_request(response, request)
         def finish_scraping(_):
@@ -115,6 +121,7 @@ class Scraper(object):
 
     def _scrape_next(self, spider, slot):
         while slot.queue:
+            # 从Scraper队列中获取一个待处理的任务
             response, request, deferred = slot.next_response_request_deferred()
             self._scrape(response, request, spider).chainDeferred(deferred)
 
@@ -122,26 +129,32 @@ class Scraper(object):
         """Handle the downloaded response or failure through the spider
         callback/errback"""
         assert isinstance(response, (Response, Failure))
-
+        # 调用_scrape2继续处理
         dfd = self._scrape2(response, request, spider) # returns spiders processed output
+        # 注册异常回调
         dfd.addErrback(self.handle_spider_error, request, response, spider)
+        # 出口回调
         dfd.addCallback(self.handle_spider_output, request, response, spider)
         return dfd
 
     def _scrape2(self, request_result, request, spider):
         """Handle the different cases of request's result been a Response or a
         Failure"""
+        # 如果结果不是Failure实例,则调用爬虫中间件管理器的scrape_response
         if not isinstance(request_result, Failure):
             return self.spidermw.scrape_response(
                 self.call_spider, request_result, request, spider)
         else:
+            # 直接调用call_spider
             dfd = self.call_spider(request_result, request, spider)
             return dfd.addErrback(
                 self._log_download_errors, request_result, request, spider)
 
     def call_spider(self, result, request, spider):
+        # 回调爬虫模块
         result.request = request
         dfd = defer_result(result)
+        # 注册回调方法，取得request.callback,如果未定义则调用爬虫模块的parse方法
         dfd.addCallbacks(callback=request.callback or spider.parse,
                          errback=request.errback,
                          callbackKeywords=request.cb_kwargs)
@@ -169,9 +182,11 @@ class Scraper(object):
         )
 
     def handle_spider_output(self, result, request, response, spider):
+        # 处理爬虫输出结果
         if not result:
             return defer_succeed(None)
         it = iter_errback(result, self.handle_spider_error, request, response, spider)
+        # 注册_process_spiderrmw_output
         dfd = parallel(it, self.concurrent_items,
             self._process_spidermw_output, request, response, spider)
         return dfd
@@ -180,10 +195,14 @@ class Scraper(object):
         """Process each Request/Item (given in the output parameter) returned
         from the given spider
         """
+        # 处理Spider模块返回的每一个Request/Item
         if isinstance(output, Request):
+            # 如果结果是request,再次入Shceduler的请求队列
             self.crawler.engine.crawl(request=output, spider=spider)
         elif isinstance(output, (BaseItem, dict)):
+            # 如果结果是BaseItem/dict
             self.slot.itemproc_size += 1
+            # 调用Pipeline的process_item
             dfd = self.itemproc.process_item(output, spider)
             dfd.addBoth(self._itemproc_finished, output, response, spider)
             return dfd

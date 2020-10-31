@@ -41,6 +41,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
                 six.get_method_function(f).__name__)
 
         def process_spider_input(response):
+            # 执行一系列爬虫中间件的process_spider_input
             for method in self.methods['process_spider_input']:
                 try:
                     result = method(response=response, spider=spider)
@@ -51,9 +52,11 @@ class SpiderMiddlewareManager(MiddlewareManager):
                     raise
                 except Exception:
                     return scrape_func(Failure(), request, spider)
+            # 执行碗中渐渐地以下列process_spider_input方法后，执行call_spider
             return scrape_func(response, request, spider)
 
         def process_spider_exception(_failure, start_index=0):
+            # 执行一系列爬虫中间件的process_spider_exception
             exception = _failure.value
             # don't handle _InvalidOutput exception
             if isinstance(exception, _InvalidOutput):
@@ -77,6 +80,7 @@ class SpiderMiddlewareManager(MiddlewareManager):
         def process_spider_output(result, start_index=0):
             # items in this iterable do not need to go through the process_spider_output
             # chain, they went through it already from the process_spider_exception method
+            # 执行一系列爬虫中间件的process_spider_output
             recovered = MutableChain()
 
             def evaluate_iterable(iterable, index):
@@ -108,8 +112,9 @@ class SpiderMiddlewareManager(MiddlewareManager):
                                          .format(fname(method), type(result)))
 
             return chain(result, recovered)
-
+        # 执行process_spider_input
         dfd = mustbe_deferred(process_spider_input, response)
+        # 注册出口回调
         dfd.addCallbacks(callback=process_spider_output, errback=process_spider_exception)
         return dfd
 

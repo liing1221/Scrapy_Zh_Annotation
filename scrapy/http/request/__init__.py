@@ -20,26 +20,33 @@ class Request(object_ref):
     def __init__(self, url, callback=None, method='GET', headers=None, body=None,
                  cookies=None, meta=None, encoding='utf-8', priority=0,
                  dont_filter=False, errback=None, flags=None, cb_kwargs=None):
-
+        # 编码
         self._encoding = encoding  # this one has to be set first
+        # 请求方式
         self.method = str(method).upper()
+        # 设置请求地址URL
         self._set_url(url)
+        # 设置请求体 body
         self._set_body(body)
+        # 请求优先级
         assert isinstance(priority, int), "Request priority not an integer: %r" % priority
         self.priority = priority
-
+        # 回调函数
         if callback is not None and not callable(callback):
             raise TypeError('callback must be a callable, got %s' % type(callback).__name__)
+        # 异常回调函数
         if errback is not None and not callable(errback):
             raise TypeError('errback must be a callable, got %s' % type(errback).__name__)
         assert callback or not errback, "Cannot use errback without a callback"
         self.callback = callback
         self.errback = errback
-
+        # cookies
         self.cookies = cookies or {}
+        # 构建Header头
         self.headers = Headers(headers or {}, encoding=encoding)
+        # 是否需要过滤
         self.dont_filter = dont_filter
-
+        # 附加信息
         self._meta = dict(meta) if meta else None
         self._cb_kwargs = dict(cb_kwargs) if cb_kwargs else None
         self.flags = [] if flags is None else list(flags)
